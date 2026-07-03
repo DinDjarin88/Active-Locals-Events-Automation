@@ -19,17 +19,27 @@ This script does NOT write anything back to the Google Sheet - you update
 the status column yourself.
 
 Usage:
-    1. Make sure ANTHROPIC_API_KEY is set.
-    2. Run: python batch_create_events.py
-    3. Log in manually in the browser window when prompted (once).
-    4. For each club: let the script prefill the form, manually submit in the
-       browser, then press Enter in the terminal to continue.
+    Either:
+    A) Make sure ANTHROPIC_API_KEY is set, then: python batch_create_events.py
+       (each club is researched live via the Anthropic API)
+    B) python batch_create_events.py --research-file research.json
+       where research.json is {"<club_id>": {...event fields...}, ...} - no API key
+       needed, e.g. when a Claude Code agent has already researched every pending
+       club itself using the identical prompt/rules from research_club_with_claude().
+       Any club_id missing from the file falls back to the same blank-skeleton
+       behaviour as a failed API call, exactly as it always has.
+
+    Then: log in manually in the browser window when prompted (once), and for each
+    club let the script prefill the form, manually submit in the browser, then press
+    Enter in the terminal to continue.
 """
 
 import os
 import csv
 import io
 import re
+import json
+import argparse
 import requests
 
 from playwright.sync_api import sync_playwright
@@ -180,7 +190,13 @@ def load_pending_rows():
 # MAIN BATCH LOOP
 # ─────────────────────────────────────────────
 
-def run_batch():
+def run_batch(research_file=None):
+    research_map = {}
+    if research_file:
+        with open(research_file) as f:
+            research_map = json.load(f)
+        print(f"📚 Loaded pre-researched data for {len(research_map)} club(s) from {research_file}")
+
     pending = load_pending_rows()
     if not pending:
         print("Nothing to do - all rows already have a status, or the sheet is empty.")
@@ -215,9 +231,20 @@ def run_batch():
             print("  Commands after form fill: Enter=next  s=skip  b=back")
             print("═" * 70)
 
-            event = tse.research_club_with_claude(club_name)
+            if club_id in research_map:
+                print(f"  ✅ Using pre-researched data for: {club_name}")
+                event = dict(research_map[club_id])
+            elif research_file:
+                # --research-file mode never calls the API, even for a club it
+                # doesn't cover - that would silently reintroduce the API dependency.
+                print(f"  ⚠️  No pre-researched data for {club_id} - opening blank form for manual entry.")
+                event = None
+            else:
+                event = tse.research_club_with_claude(club_name)
+
             if not event:
-                print("  ⚠️  Claude research failed - opening blank form for manual entry.")
+                if not research_file:
+                    print("  ⚠️  Claude research failed - opening blank form for manual entry.")
                 event = {
                     "title": club_name,
                     "description": "",
@@ -341,4 +368,12 @@ def run_batch():
 
 
 if __name__ == "__main__":
-    run_batch()
+    parser = argparse.ArgumentParser(description="Batch-process unprocessed ActiveLocals clubs from the sheet.")
+    parser.add_argument(
+        "--research-file",
+        help="Path to a JSON file of {club_id: event_fields} - skips the Anthropic API "
+             "entirely, e.g. when a Claude Code agent has already researched every "
+             "pending club itself.",
+    )
+    args = parser.parse_args()
+    run_batch(research_file=args.research_file)

@@ -1,6 +1,6 @@
 ---
 name: create-al-event
-description: Run the ActiveLocals event-creation automation against the shared Google Sheet - researches each unprocessed club with Claude and prefills its Create Event form in the admin portal via Playwright, so a human only has to validate and click submit before moving to the next one. Use when the user asks to process/upload/create events for ActiveLocals clubs, or to run/test this automation.
+description: Run the ActiveLocals event-creation automation against the shared Google Sheet - the Claude Code agent researches each unprocessed club itself (no Anthropic API key needed) and prefills its Create Event form in the admin portal via Playwright, so a human only has to validate and click submit before moving to the next one. Use when the user asks to process/upload/create events for ActiveLocals clubs, or to run/test this automation.
 ---
 
 This skill drives the Playwright automation in this repository that researches ActiveLocals
@@ -10,11 +10,18 @@ Confirm/Submit, then tells the script (via the terminal prompt) to move to the n
 That is by design: the automation removes the tedious research-and-typing, not the judgment
 call of whether the data is correct.
 
+Research is done by **you** (the Claude Code agent running this skill), not by a separate
+Anthropic API call - so no `ANTHROPIC_API_KEY` is required. You must follow the exact
+research contract below so behaviour matches the original API-based version byte-for-byte
+in shape and rules (same JSON schema, same "don't guess if unsure" behaviour). The original
+never did live web search either - it only used the model's own knowledge - so you should
+do the same: answer from what you already know, don't go run web searches to compensate.
+
 ## Usage
 
 - `/create-al-event` — batch mode (the normal path). Pulls every row from the shared Google
-  Sheet that doesn't already have a status set, and processes them one at a time: research →
-  prefill form → human validates and submits in the browser → Enter in the terminal → next club.
+  Sheet that doesn't already have a status set, and processes them one at a time: you research
+  → prefill form → human validates and submits in the browser → Enter in the terminal → next club.
 - `/create-al-event <club_id> <club_name>` — process one specific club only (useful for
   re-running a single row, or testing).
 
@@ -31,25 +38,79 @@ an absolute path, this repo may be cloned anywhere):
    user to run `env/bin/playwright install --with-deps chromium` themselves (installs system
    packages via sudo, so don't run it on their behalf without asking).
 4. Check for a `.env` file in the repo root. If it's missing:
-   - Ask the user for their ActiveLocals admin portal email and password, and for an
-     `ANTHROPIC_API_KEY` if one isn't already set in the shell environment.
+   - Ask the user for their ActiveLocals admin portal email and password.
    - Write them to `.env` (already git-ignored — verify with `git check-ignore -v .env` before
-     ever running `git add`) using the keys `ACTIVELOCALS_EMAIL`, `ACTIVELOCALS_PASSWORD`,
-     `ANTHROPIC_API_KEY`. Use `.env.example` as the template.
+     ever running `git add`) using the keys `ACTIVELOCALS_EMAIL`, `ACTIVELOCALS_PASSWORD`.
+     Use `.env.example` as the template. `ANTHROPIC_API_KEY` is not needed for this flow.
    - Never hardcode a specific person's credentials into any tracked file, and never print the
      password back out once it's saved.
 
-## Step 1 — run it
+## Step 1 — read the pending clubs (no API key involved, just reads the sheet)
 
-Batch mode (default):
 ```
-env/bin/python batch_create_events.py
+env/bin/python -c "import batch_create_events as bce, json; print(json.dumps(bce.load_pending_rows()))"
+```
+
+This returns a JSON list of clubs that don't already have a status set in the sheet, each with
+`club_id`, `club_name`, and any `day_of_week`/`start_time` already extracted from the sheet's
+own text columns.
+
+## Step 2 — research each pending club yourself
+
+For every club in that list, produce a JSON object using **exactly** this contract (this is the
+original system prompt verbatim - follow it exactly, do not embellish or add your own rules):
+
+> You are an assistant that researches community groups and generates event details for the
+> ActiveLocals platform.
+>
+> When given a club name, use your knowledge to find information about that club, then return a
+> JSON object with these exact fields:
+> ```json
+> {
+>   "title": "Event title (e.g. 'Chilli Chicks Run Club, Wednesday Morning Run')",
+>   "description": "2-3 sentence description of the club and what the event is",
+>   "what_to_expect": "2-3 sentences on what attendees can expect at the session",
+>   "website": "Club website or social media URL, or empty string if none found",
+>   "intensity": "One of: Just for Fun | Fit & Focused | High Performance",
+>   "address": "Full street address of where the event is held. Must be a real, searchable address.",
+>   "day_of_week": "The day of the week this recurring event happens, e.g. 'Wednesday'. If you are not confident, return an empty string.",
+>   "start_time": "Start time in 24h HH:MM local time at the venue, e.g. '06:30'. If not confident, return an empty string.",
+>   "end_time": "End time in 24h HH:MM local time at the venue, e.g. '07:30'. If not confident, return an empty string.",
+>   "recurring": true,
+>   "image_search_query": "The exact club name - this will be used to search Google Images for photos of this specific group."
+> }
+> ```
+> Rules:
+> - No em dashes anywhere
+> - Keep descriptions factual and friendly
+> - If you are not confident about the day_of_week or times, return empty strings for those
+>   fields rather than guessing - the tool will prompt a human to fill them in
+> - For ADDRESS: Include a specific street number and name, not just a park name or suburb
+> - For image_search_query: Return the EXACT CLUB NAME from search results, not a generic query
+> - Return ONLY the JSON object, no other text, no markdown code blocks
+
+If the sheet already extracted a `day_of_week`/`start_time` for a club, prefer that over your
+own guess for those two fields (same precedence the original script already applies).
+
+Write the results to a scratch file as `{"<club_id>": {...fields...}, ...}` for every pending
+club (skip a club entirely, or leave its fields empty, if you're not confident — the automation
+already opens a blank/partial form for manual entry for anything you skip).
+
+## Step 3 — run the automation with your research
+
+Batch mode:
+```
+env/bin/python batch_create_events.py --research-file <path to the JSON from step 2>
 ```
 
 Single club:
 ```
-env/bin/python test_single_event.py --club-id "<club_id>" --club-name "<club name>"
+env/bin/python test_single_event.py --club-id "<club_id>" --club-name "<club name>" --event-json-file <path to a one-club JSON file with the same fields>
 ```
+
+(An `ANTHROPIC_API_KEY` path still exists as a fallback for anyone who wants the script to
+research clubs itself via the Anthropic API instead — just omit `--research-file`/
+`--event-json-file` and set the key. Not needed for the normal Claude Code flow above.)
 
 ## While it's running
 
@@ -72,4 +133,4 @@ env/bin/python test_single_event.py --club-id "<club_id>" --club-name "<club nam
 
 Report which club(s) were processed, and flag anything the script marked with:
 - 🚩 — missing day/time, needs manual scheduling
-- ⚠️ — missing address or image, needs manual fill-in
+- ⚠️ — missing address, image, or pre-researched data, needs manual fill-in

@@ -16,30 +16,39 @@ cp .env.example .env   # then fill in your own values
 
 `.env` needs:
 - `ACTIVELOCALS_EMAIL` / `ACTIVELOCALS_PASSWORD` — your admin portal login
-- `ANTHROPIC_API_KEY` — used to research each club
+- `ANTHROPIC_API_KEY` — optional, see below
 
 `.env` is git-ignored. Never commit real credentials.
 
 ## Usage
 
+Neither script researches clubs itself unless you let it — they can either call the Anthropic
+API directly, or take pre-researched data you supply, so no API key is required at all:
+
 Batch mode — processes every row in the sheet that doesn't already have a status set:
 
 ```bash
-env/bin/python batch_create_events.py
+env/bin/python batch_create_events.py                                    # needs ANTHROPIC_API_KEY
+env/bin/python batch_create_events.py --research-file research.json      # no API key needed
 ```
 
 Single club:
 
 ```bash
-env/bin/python test_single_event.py --club-id "<club_id>" --club-name "<club name>"
+env/bin/python test_single_event.py --club-id "<id>" --club-name "<name>"                              # needs ANTHROPIC_API_KEY
+env/bin/python test_single_event.py --club-id "<id>" --club-name "<name>" --event-json-file event.json  # no API key needed
 ```
 
-Either way: the script opens a real browser window, logs in, fills the form, then pauses for
-you to review and click Submit yourself before moving to the next club.
+`research.json` / `event.json` follow the same field shape documented in
+`.claude/skills/create-al-event/SKILL.md`. Either way: the script opens a real browser window,
+logs in, fills the form, then pauses for you to review and click Submit yourself before moving
+to the next club.
 
-## Using this from Claude Code
+## Using this from Claude Code (recommended, no API key needed)
 
 This repo includes a Claude Code skill (`.claude/skills/create-al-event`). Open this directory
 in Claude Code and run `/create-al-event` — it handles the environment setup (venv,
-dependencies, Playwright browser, asking for your `.env` credentials if missing) and then runs
-the automation above, relaying each review/submit prompt to you.
+dependencies, Playwright browser, asking for your `.env` credentials if missing), researches
+each pending club itself using the same rules the original API prompt used, then runs the
+automation above with that research, relaying each review/submit prompt to you. No
+`ANTHROPIC_API_KEY` required for this path.

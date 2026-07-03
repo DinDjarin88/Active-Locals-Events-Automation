@@ -1167,14 +1167,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Research and prefill an ActiveLocals event.")
     parser.add_argument("--club-id", help="Club UUID (overrides CLUB_ID constant)")
     parser.add_argument("--club-name", help="Club name (overrides CLUB_NAME constant)")
+    parser.add_argument(
+        "--event-json-file",
+        help="Path to a JSON file with pre-researched event fields (same shape as "
+             "MANUAL_OVERRIDE) - skips the Anthropic API call entirely, e.g. when a "
+             "Claude Code agent has already done the research itself.",
+    )
     args = parser.parse_args()
 
     if args.club_id and args.club_name:
         CLUB_ID = args.club_id
         CLUB_NAME = args.club_name
-        # A specific club was requested on the command line, so ignore the
-        # MANUAL_OVERRIDE test fixture above and do live Claude research instead.
-        MANUAL_OVERRIDE = None
+        if args.event_json_file:
+            with open(args.event_json_file) as f:
+                MANUAL_OVERRIDE = json.load(f)
+        else:
+            # A specific club was requested on the command line, so ignore the
+            # MANUAL_OVERRIDE test fixture above and do live Claude research instead.
+            MANUAL_OVERRIDE = None
     elif args.club_id or args.club_name:
         parser.error("--club-id and --club-name must be provided together")
 
