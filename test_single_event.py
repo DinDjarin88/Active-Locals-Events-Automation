@@ -46,29 +46,21 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "sk-ant-YOUR_KEY_HERE")
 BASE_URL = "https://mapqhipy2m.ap-southeast-2.awsapprunner.com"
 
 # ─────────────────────────────────────────────
-# CLUB TO PROCESS — change these each run
+# CLUB TO PROCESS — only used when running this script directly with no
+# --club-id/--club-name flags. Leave blank; batch_create_events.py (the
+# normal entry point) always overrides these from the Google Sheet.
 # ─────────────────────────────────────────────
-CLUB_ID   = "4553dd70-f355-4d7d-a825-075766f13556"
-CLUB_NAME = "Chilli Chicks Run Club"
+CLUB_ID   = ""
+CLUB_NAME = ""
 
-# Optional: Override Claude's research with correct details (leave empty to use Claude)
+# Optional: Override Claude's research with correct details (leave as None to use Claude).
+# Only ever set this temporarily on your own machine for debugging one club - never commit
+# real values here, since anyone else running the script would silently get your fixture data.
 # Format: dict with keys: title, description, what_to_expect, website, intensity, address,
 #         day_of_week, start_time, end_time, recurring, image_search_query
 # day_of_week: one of Monday/Tuesday/.../Sunday, or "" if unknown (will prompt for manual entry)
 # start_time / end_time: 24h "HH:MM" local time
-MANUAL_OVERRIDE = {
-    "title": "Chilli Chicks Run Club, Wednesday Morning Run",
-    "description": "Chilli Chicks is a women-only run club in Brisbane built around the idea that running should feel achievable, social, and genuinely fun. The pace is intentionally relaxed at around 7:00 min/km, and walking is always welcomed.",
-    "what_to_expect": "You'll join a supportive group of women runners for a morning run through Hawthorne. The pace is inclusive with options for different fitness levels, and the session includes a social catch-up afterwards where members enjoy coffee and community.",
-    "website": "https://www.instagram.com/chilli_chicks_run_club/",
-    "intensity": "Fit & Focused",
-    "address": "Hawthorne, Brisbane QLD 4169, Australia",
-    "day_of_week": "Wednesday",
-    "start_time": "06:30",
-    "end_time": "07:30",
-    "recurring": True,
-    "image_search_query": "Chilli Chicks Run Club"
-}
+MANUAL_OVERRIDE = None
 
 IMAGE_DIR = "./temp_images"
 
@@ -1185,5 +1177,11 @@ if __name__ == "__main__":
         MANUAL_OVERRIDE = None
     elif args.club_id or args.club_name:
         parser.error("--club-id and --club-name must be provided together")
+
+    if not CLUB_ID or not CLUB_NAME:
+        parser.error(
+            "No club specified. Pass --club-id and --club-name, "
+            "or run batch_create_events.py to process every unprocessed row in the sheet."
+        )
 
     run()
