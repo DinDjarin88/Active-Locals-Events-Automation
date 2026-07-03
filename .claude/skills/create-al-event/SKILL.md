@@ -1,27 +1,37 @@
 ---
 name: create-al-event
-description: Run the ActiveLocals event-creation automation against the shared Google Sheet - the Claude Code agent researches each unprocessed club itself (no Anthropic API key needed) and prefills its Create Event form in the admin portal via Playwright, so a human only has to validate and click submit before moving to the next one. Use when the user asks to process/upload/create events for ActiveLocals clubs, or to run/test this automation.
+description: Prepare the ActiveLocals event-creation automation against the shared Google Sheet - the Claude Code agent bootstraps the environment and researches each unprocessed club itself (no Anthropic API key needed), then hands the user the exact command to run themselves in their own terminal, where they keep full native keyboard control (Enter/s/b) to review each filled form in the browser and confirm they've manually submitted it before moving to the next. Use when the user asks to process/upload/create events for ActiveLocals clubs, or to run/test this automation.
 ---
 
-This skill drives the Playwright automation in this repository that researches ActiveLocals
-clubs and prefills their "Create Event" form on the admin portal. It does **not** submit
-anything itself - a human always reviews the filled form in the browser and clicks
-Confirm/Submit, then tells the script (via the terminal prompt) to move to the next club.
-That is by design: the automation removes the tedious research-and-typing, not the judgment
-call of whether the data is correct.
+This skill prepares (but does not itself drive, see below) the Playwright automation in this
+repository that researches ActiveLocals clubs and prefills their "Create Event" form on the
+admin portal. It never submits anything - a human always reviews the filled form in the
+browser and clicks Confirm/Submit, then presses Enter (or types `s`/`b`) in the terminal to
+move on. That is by design: the automation removes the tedious research-and-typing, not the
+judgment call of whether the data is correct, or the human's control over when to advance.
 
-Research is done by **you** (the Claude Code agent running this skill), not by a separate
-Anthropic API call - so no `ANTHROPIC_API_KEY` is required. You must follow the exact
-research contract below so behaviour matches the original API-based version byte-for-byte
-in shape and rules (same JSON schema, same "don't guess if unsure" behaviour). The original
-never did live web search either - it only used the model's own knowledge - so you should
-do the same: answer from what you already know, don't go run web searches to compensate.
+**Important - do not run the interactive automation script yourself via your own Bash tool.**
+It blocks on `input()` for the review/submit step, and you have no reliable way to hand the
+user real keyboard control over a process you're driving in the background - at best you'd be
+relaying their chat replies into its stdin yourself, which is fragile and not something every
+Claude Code environment can even do. Instead: do the non-interactive setup and research (steps
+0-2 below), then hand the user the exact command and let *them* run it in *their own* terminal.
+That gives them the same literal Enter/s/b control the script has always offered, with nothing
+in between.
+
+Research (step 2) is done by **you**, not by a separate Anthropic API call - so no
+`ANTHROPIC_API_KEY` is required. Follow the exact research contract below so behaviour matches
+the original API-based version byte-for-byte in shape and rules (same JSON schema, same "don't
+guess if unsure" behaviour). The original never did live web search either - it only used the
+model's own knowledge - so you should do the same: answer from what you already know, don't go
+run web searches to compensate.
 
 ## Usage
 
 - `/create-al-event` — batch mode (the normal path). Pulls every row from the shared Google
-  Sheet that doesn't already have a status set, and processes them one at a time: you research
-  → prefill form → human validates and submits in the browser → Enter in the terminal → next club.
+  Sheet that doesn't already have a status set. You bootstrap + research all of them, then the
+  user runs one command themselves that loops through: prefill form → they validate and submit
+  in the browser → they press Enter in their terminal → next club.
 - `/create-al-event <club_id> <club_name>` — process one specific club only (useful for
   re-running a single row, or testing).
 
@@ -96,7 +106,10 @@ Write the results to a scratch file as `{"<club_id>": {...fields...}, ...}` for 
 club (skip a club entirely, or leave its fields empty, if you're not confident — the automation
 already opens a blank/partial form for manual entry for anything you skip).
 
-## Step 3 — run the automation with your research
+## Step 3 — hand off to the user's own terminal
+
+Do not run this command yourself. Print it clearly and tell the user to run it in their own
+terminal (a normal shell window, not something you invoke):
 
 Batch mode:
 ```
@@ -108,29 +121,27 @@ Single club:
 env/bin/python test_single_event.py --club-id "<club_id>" --club-name "<club name>" --event-json-file <path to a one-club JSON file with the same fields>
 ```
 
-(An `ANTHROPIC_API_KEY` path still exists as a fallback for anyone who wants the script to
-research clubs itself via the Anthropic API instead — just omit `--research-file`/
-`--event-json-file` and set the key. Not needed for the normal Claude Code flow above.)
-
-## While it's running
-
-- A real (non-headless) Chromium window opens. Login is attempted automatically from `.env`;
-  if that fails the script falls back to waiting up to 5 minutes for the user to log in by hand
-  — tell the user if that happens.
-- The script pauses at the terminal for the user to review the filled form in the browser and
-  manually submit it themselves, and again to type optional free-text corrections (e.g. "every
-  Monday at 5:15am at Olivers Hill Frankston") or `s`/`b` to skip/go back a club. Relay these
-  prompts to the user and wait for their reply before doing anything else - do not auto-answer
-  them or send blank Enters on their behalf to rush through clubs.
-- Never click "Confirm"/"Submit" in the browser yourself and never send Enter at those prompts
-  without the user telling you to — the manual review step exists specifically so a human checks
-  the data before it goes live.
+Tell them what to expect, so it's not a surprise:
+- A real (non-headless) Chromium window will open. Login is attempted automatically from
+  `.env`; if that fails it falls back to waiting up to 5 minutes for them to log in by hand.
+- For each club: the form gets prefilled, they review it in the browser, manually upload/fix
+  anything needed, click Confirm/Submit themselves in the browser, then press Enter in their
+  terminal (or type `s` to skip / `b` to go back a club) to move on. This is their terminal now
+  — they have the same native keyboard control the script has always offered, nothing relayed
+  through you.
 - `batch_create_events.py` never writes back to the sheet. After each club is actually
-  submitted in the browser, remind the user to mark it processed in the sheet's status column
-  themselves, or it will be re-offered next run.
+  submitted in the browser, they need to mark it processed in the sheet's status column
+  themselves, or it'll be re-offered next run.
 
-## After it finishes
+(An `ANTHROPIC_API_KEY` path still exists as a fallback for anyone who wants the script to
+research clubs itself via the Anthropic API instead of steps 1-2 above — just omit
+`--research-file`/`--event-json-file` and set the key.)
 
-Report which club(s) were processed, and flag anything the script marked with:
+## After they're done
+
+When the user comes back and tells you how it went, summarize which club(s) were actually
+submitted vs skipped, and flag anything you marked with:
 - 🚩 — missing day/time, needs manual scheduling
-- ⚠️ — missing address, image, or pre-researched data, needs manual fill-in
+- ⚠️ — missing address or other field you left blank due to low confidence, needs manual fill-in
+
+Remind them to update the sheet's status column for anything they submitted, if they haven't already.

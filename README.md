@@ -48,7 +48,8 @@ to the next club.
 
 This repo includes a Claude Code skill (`.claude/skills/create-al-event`). Open this directory
 in Claude Code and run `/create-al-event` — it handles the environment setup (venv,
-dependencies, Playwright browser, asking for your `.env` credentials if missing), researches
-each pending club itself using the same rules the original API prompt used, then runs the
-automation above with that research, relaying each review/submit prompt to you. No
+dependencies, Playwright browser, asking for your `.env` credentials if missing) and researches
+each pending club itself using the same rules the original API prompt used. It then hands you
+the exact command to run yourself in your own terminal, so review/submit stays under your own
+native keyboard control (Enter/`s`/`b`) with nothing relayed through Claude. No
 `ANTHROPIC_API_KEY` required for this path.
