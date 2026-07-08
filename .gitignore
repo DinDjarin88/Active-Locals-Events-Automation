@@ -2,3 +2,5 @@
 env/
 __pycache__/
 temp_images/
+research_run.json
+event_run.json

@@ -46,12 +46,13 @@ env/bin/python test_single_event.py --club-id "<id>" --club-name "<name>" --even
 logs in, fills the form, then pauses for you to review and click Submit yourself before moving
 to the next club.
 
-## Using this from Claude Code (recommended, no API key needed)
+## Using this from Claude Code (recommended, no API key needed, no separate terminal needed)
 
 This repo includes a Claude Code skill (`.claude/skills/create-al-event`). Open this directory
 in Claude Code and run `/create-al-event` — it handles the environment setup (venv,
 dependencies, Playwright browser, asking for your `.env` credentials if missing), asks you for
 the Google Sheet link to process, and researches each pending club itself using the same rules
-the original API prompt used. It then hands you the exact command to run yourself in your own
-terminal, so review/submit stays under your own native keyboard control (Enter/`s`/`b`) with
-nothing relayed through Claude. No `ANTHROPIC_API_KEY` required for this path.
+the original API prompt used. It then runs the automation in the background and drives it from
+the chat: for each club you review the filled-in form in the browser, click Submit yourself,
+then just tell Claude "next" (or "skip" / "go back" / a correction) to move on — no separate
+terminal, no `ANTHROPIC_API_KEY` required.

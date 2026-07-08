@@ -1,23 +1,22 @@
 ---
 name: create-al-event
-description: Prepare the ActiveLocals event-creation automation against the shared Google Sheet - the Claude Code agent bootstraps the environment and researches each unprocessed club itself (no Anthropic API key needed), then hands the user the exact command to run themselves in their own terminal, where they keep full native keyboard control (Enter/s/b) to review each filled form in the browser and confirm they've manually submitted it before moving to the next. Use when the user asks to process/upload/create events for ActiveLocals clubs, or to run/test this automation.
+description: Run the ActiveLocals event-creation automation entirely inside Claude Code - the agent bootstraps the environment, researches each unprocessed club itself (no Anthropic API key needed), then drives the Playwright automation in the background and relays each review/submit/skip decision through the chat, so the user never has to leave Claude Code or open a separate terminal. Use when the user asks to process/upload/create events for ActiveLocals clubs, or to run/test this automation.
 ---
 
-This skill prepares (but does not itself drive, see below) the Playwright automation in this
-repository that researches ActiveLocals clubs and prefills their "Create Event" form on the
-admin portal. It never submits anything - a human always reviews the filled form in the
-browser and clicks Confirm/Submit, then presses Enter (or types `s`/`b`) in the terminal to
-move on. That is by design: the automation removes the tedious research-and-typing, not the
-judgment call of whether the data is correct, or the human's control over when to advance.
+This skill drives the Playwright automation in this repository that researches ActiveLocals
+clubs and prefills their "Create Event" form on the admin portal - end to end, inside this
+Claude Code session. It never submits anything itself - a human always reviews the filled form
+in the browser and clicks Confirm/Submit, then tells you (in chat) to move on. That is by
+design: the automation removes the tedious research-and-typing, not the judgment call of
+whether the data is correct, or the human's control over when to advance.
 
-**Important - do not run the interactive automation script yourself via your own Bash tool.**
-It blocks on `input()` for the review/submit step, and you have no reliable way to hand the
-user real keyboard control over a process you're driving in the background - at best you'd be
-relaying their chat replies into its stdin yourself, which is fragile and not something every
-Claude Code environment can even do. Instead: do the non-interactive setup and research (steps
-0-3 below), then hand the user the exact command and let *them* run it in *their own* terminal.
-That gives them the same literal Enter/s/b control the script has always offered, with nothing
-in between.
+**How you run it without a separate terminal:** the script blocks on `input()` for the
+review/submit step, and your Bash tool doesn't give the user a real shared terminal - so you
+keep the script's stdin open yourself via a FIFO, run the script in the background, and relay
+the user's chat replies ("next" / "skip" / "back" / free-text corrections) into that FIFO. This
+is standard POSIX (`mkfifo`, background jobs) and works the same on Linux, macOS, and WSL. The
+exact mechanics are in Step 4 - follow them precisely, this is the part that's easy to get
+subtly wrong (buffering, EOF-closing the pipe, etc).
 
 Research (step 3) is done by **you**, not by a separate Anthropic API call - so no
 `ANTHROPIC_API_KEY` is required. Follow the exact research contract below so behaviour matches
@@ -29,9 +28,9 @@ run web searches to compensate.
 ## Usage
 
 - `/create-al-event` — batch mode (the normal path). Pulls every row from the shared Google
-  Sheet that doesn't already have a status set. You bootstrap + research all of them, then the
-  user runs one command themselves that loops through: prefill form → they validate and submit
-  in the browser → they press Enter in their terminal → next club.
+  Sheet that doesn't already have a status set, and processes them one at a time entirely in
+  this chat: you research → prefill form → user reviews and submits in the browser → they tell
+  you "next" in chat → you advance to the next club.
 - `/create-al-event <club_id> <club_name>` — process one specific club only (useful for
   re-running a single row, or testing).
 
@@ -61,7 +60,7 @@ Ask the user to paste the link to the Google Sheet to process (a normal share/ed
 fine — the tool accepts a full URL with or without a `gid`, or a bare sheet ID). Don't assume
 or reuse a sheet from a previous run; ask fresh each time in case they're pointing at a
 different one. Keep the exact string they give you - you'll pass it verbatim as `--sheet-url`
-in both step 2's read and step 4's handoff command below, so both operate on the same sheet.
+in both step 2's read and step 4's launch command below, so both operate on the same sheet.
 
 ## Step 2 — read the pending clubs (no API key involved, just reads the sheet)
 
@@ -110,48 +109,74 @@ original system prompt verbatim - follow it exactly, do not embellish or add you
 If the sheet already extracted a `day_of_week`/`start_time` for a club, prefer that over your
 own guess for those two fields (same precedence the original script already applies).
 
-Write the results to a scratch file as `{"<club_id>": {...fields...}, ...}` for every pending
-club (skip a club entirely, or leave its fields empty, if you're not confident — the automation
-already opens a blank/partial form for manual entry for anything you skip).
+Write the results to a file in the repo root, e.g. `research_run.json`, as
+`{"<club_id>": {...fields...}, ...}` for every pending club (skip a club entirely, or leave its
+fields empty, if you're not confident — the automation already opens a blank/partial form for
+manual entry for anything you skip). Add that filename to `.gitignore` if it isn't already
+covered, so it never gets committed.
 
-## Step 4 — hand off to the user's own terminal
+## Step 4 — run it in the background and relay control through chat
 
-Do not run this command yourself. Print it clearly and tell the user to run it in their own
-terminal (a normal shell window, not something you invoke):
+**Set up a FIFO so the script's stdin never closes** (closing it makes Python raise `EOFError`
+the next time it calls `input()`, which would silently kill the run mid-club):
 
-Batch mode (use the *same* sheet link from step 1, so the interactive run matches what you
-just researched):
 ```
-env/bin/python batch_create_events.py --research-file <path to the JSON from step 3> --sheet-url "<the sheet link from step 1>"
-```
-
-Single club:
-```
-env/bin/python test_single_event.py --club-id "<club_id>" --club-name "<club name>" --event-json-file <path to a one-club JSON file with the same fields>
+mkfifo /tmp/al_stdin.fifo
+nohup tail -f /dev/null > /tmp/al_stdin.fifo &
+disown
 ```
 
-Tell them what to expect, so it's not a surprise:
-- A real (non-headless) Chromium window will open. Login is attempted automatically from
-  `.env`; if that fails it falls back to waiting up to 5 minutes for them to log in by hand.
-- For each club: the form gets prefilled, they review it in the browser, manually upload/fix
-  anything needed, click Confirm/Submit themselves in the browser, then press Enter in their
-  terminal (or type `s` to skip / `b` to go back a club) to move on. This is their terminal now
-  — they have the same native keyboard control the script has always offered, nothing relayed
-  through you.
-- `batch_create_events.py` never writes back to the sheet. After each club is actually
-  submitted in the browser, they need to mark it processed in the sheet's status column
-  themselves, or it'll be re-offered next run.
+**Launch the script in the background, unbuffered (`-u`) so log output shows up immediately**
+instead of sitting in a buffer until the process exits (this bit you in earlier testing - don't
+skip `-u`):
+
+```
+env/bin/python -u batch_create_events.py --sheet-url "<sheet link from step 1>" --research-file research_run.json < /tmp/al_stdin.fifo > /tmp/al_run.log 2>&1 &
+disown
+```
+
+**Poll the log** (`tail -n 40 /tmp/al_run.log`) to see where it's at, and narrate progress to
+the user as it happens (logged in, navigated to club X, filled the form, etc) rather than going
+silent until something needs their input.
+
+**When it reaches a pause** ("Form filled. Please review in the browser" / "Press Enter to move
+to the next club"), tell the user in chat what's ready for review and wait for their reply.
+Do not send anything into the FIFO until they've actually responded - never auto-advance.
+
+**Translate their reply into the FIFO:**
+- "looks good" / "next" / "submitted" → `printf '\n' > /tmp/al_stdin.fifo`
+- "skip" → `printf 's\n' > /tmp/al_stdin.fifo`
+- "go back" → `printf 'b\n' > /tmp/al_stdin.fifo`
+- Free-text corrections (e.g. "it's actually at Centennial Park") → `printf '%s\n' "<their text>" > /tmp/al_stdin.fifo`
+
+Then poll the log again and repeat until the run reports "Batch run complete!" and pauses one
+last time to close the browser - confirm with the user before sending that final Enter too.
+
+**Never** click Confirm/Submit in the browser yourself, and **never** send input into the FIFO
+that the user didn't just ask for - the whole point of relaying is that nothing advances without
+them explicitly saying so.
+
+**Cleanup when done or if the user wants to stop:** send `SIGINT` (not `SIGTERM`/`SIGKILL`) to
+the python process so Playwright's context manager closes the browser gracefully, then kill the
+`tail` sentinel and remove the FIFO.
+
+**If any of this fails** (e.g. `mkfifo` isn't available in the user's environment), fall back to
+handing them the same command to run themselves in their own terminal instead - tell them
+explicitly why you're falling back.
+
+`batch_create_events.py` never writes back to the sheet. After each club is actually submitted
+in the browser, remind the user to mark it processed in the sheet's status column themselves,
+or it'll be re-offered next run.
 
 (An `ANTHROPIC_API_KEY` path still exists as a fallback for anyone who wants the script to
 research clubs itself via the Anthropic API instead of steps 2-3 above — just omit
-`--research-file`/`--event-json-file` and set the key. `--sheet-url` still works either way,
-and if omitted the script prompts for it directly.)
+`--research-file` and set the key. `--sheet-url` still works either way.)
 
-## After they're done
+## After it finishes
 
-When the user comes back and tells you how it went, summarize which club(s) were actually
-submitted vs skipped, and flag anything you marked with:
+Summarize which club(s) were actually submitted vs skipped, and flag anything you marked with:
 - 🚩 — missing day/time, needs manual scheduling
 - ⚠️ — missing address or other field you left blank due to low confidence, needs manual fill-in
 
-Remind them to update the sheet's status column for anything they submitted, if they haven't already.
+Remind the user to update the sheet's status column for anything they submitted, if they
+haven't already.
