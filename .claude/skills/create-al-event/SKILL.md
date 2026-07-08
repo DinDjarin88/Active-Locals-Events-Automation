@@ -46,11 +46,20 @@ an absolute path, this repo may be cloned anywhere):
    later with missing shared-library errors, that means Linux system deps are missing — tell the
    user to run `env/bin/playwright install --with-deps chromium` themselves (installs system
    packages via sudo, so don't run it on their behalf without asking).
-4. Check for a `.env` file in the repo root. If it's missing:
-   - Ask the user for their ActiveLocals admin portal email and password.
-   - Write them to `.env` (already git-ignored — verify with `git check-ignore -v .env` before
-     ever running `git add`) using the keys `ACTIVELOCALS_EMAIL`, `ACTIVELOCALS_PASSWORD`.
-     Use `.env.example` as the template. `ANTHROPIC_API_KEY` is not needed for this flow.
+4. Check for a `.env` file in the repo root. **This step never blocks progress** —
+   `ensure_logged_in()` in `test_single_event.py` already falls back to opening the real
+   Chromium window at the login page and waiting (up to 5 minutes) for the user to log in by
+   hand if credentials aren't set, so a missing `.env` is not an error condition.
+   - If `.env` is missing, just mention once, in passing, that she can either log in manually
+     in the browser window when it opens, or give you her ActiveLocals email/password now to
+     save into `.env` (git-ignored — verify with `git check-ignore -v .env` before ever running
+     `git add`) for automatic login on future runs. Then move on to Step 1 immediately — do not
+     wait for an answer before proceeding.
+   - If she does offer credentials later in the conversation, write them to `.env` using the
+     keys `ACTIVELOCALS_EMAIL`, `ACTIVELOCALS_PASSWORD` (see `.env.example` for the template).
+     Ask for them as a plain chat message if you ever do need to prompt — do **not** use a
+     structured question/option-picker tool for this, since email/password are free text, not a
+     choice between alternatives.
    - Never hardcode a specific person's credentials into any tracked file, and never print the
      password back out once it's saved.
 
