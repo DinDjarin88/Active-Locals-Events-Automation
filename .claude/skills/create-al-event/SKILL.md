@@ -15,11 +15,11 @@ It blocks on `input()` for the review/submit step, and you have no reliable way 
 user real keyboard control over a process you're driving in the background - at best you'd be
 relaying their chat replies into its stdin yourself, which is fragile and not something every
 Claude Code environment can even do. Instead: do the non-interactive setup and research (steps
-0-2 below), then hand the user the exact command and let *them* run it in *their own* terminal.
+0-3 below), then hand the user the exact command and let *them* run it in *their own* terminal.
 That gives them the same literal Enter/s/b control the script has always offered, with nothing
 in between.
 
-Research (step 2) is done by **you**, not by a separate Anthropic API call - so no
+Research (step 3) is done by **you**, not by a separate Anthropic API call - so no
 `ANTHROPIC_API_KEY` is required. Follow the exact research contract below so behaviour matches
 the original API-based version byte-for-byte in shape and rules (same JSON schema, same "don't
 guess if unsure" behaviour). The original never did live web search either - it only used the
@@ -55,17 +55,25 @@ an absolute path, this repo may be cloned anywhere):
    - Never hardcode a specific person's credentials into any tracked file, and never print the
      password back out once it's saved.
 
-## Step 1 — read the pending clubs (no API key involved, just reads the sheet)
+## Step 1 — ask for the Google Sheet link (batch mode only, skip for a single club)
+
+Ask the user to paste the link to the Google Sheet to process (a normal share/edit link is
+fine — the tool accepts a full URL with or without a `gid`, or a bare sheet ID). Don't assume
+or reuse a sheet from a previous run; ask fresh each time in case they're pointing at a
+different one. Keep the exact string they give you - you'll pass it verbatim as `--sheet-url`
+in both step 2's read and step 4's handoff command below, so both operate on the same sheet.
+
+## Step 2 — read the pending clubs (no API key involved, just reads the sheet)
 
 ```
-env/bin/python -c "import batch_create_events as bce, json; print(json.dumps(bce.load_pending_rows()))"
+env/bin/python -c "import batch_create_events as bce, json; print(json.dumps(bce.load_pending_rows('<the sheet link from step 1>')))"
 ```
 
 This returns a JSON list of clubs that don't already have a status set in the sheet, each with
 `club_id`, `club_name`, and any `day_of_week`/`start_time` already extracted from the sheet's
 own text columns.
 
-## Step 2 — research each pending club yourself
+## Step 3 — research each pending club yourself
 
 For every club in that list, produce a JSON object using **exactly** this contract (this is the
 original system prompt verbatim - follow it exactly, do not embellish or add your own rules):
@@ -106,14 +114,15 @@ Write the results to a scratch file as `{"<club_id>": {...fields...}, ...}` for 
 club (skip a club entirely, or leave its fields empty, if you're not confident — the automation
 already opens a blank/partial form for manual entry for anything you skip).
 
-## Step 3 — hand off to the user's own terminal
+## Step 4 — hand off to the user's own terminal
 
 Do not run this command yourself. Print it clearly and tell the user to run it in their own
 terminal (a normal shell window, not something you invoke):
 
-Batch mode:
+Batch mode (use the *same* sheet link from step 1, so the interactive run matches what you
+just researched):
 ```
-env/bin/python batch_create_events.py --research-file <path to the JSON from step 2>
+env/bin/python batch_create_events.py --research-file <path to the JSON from step 3> --sheet-url "<the sheet link from step 1>"
 ```
 
 Single club:
@@ -134,8 +143,9 @@ Tell them what to expect, so it's not a surprise:
   themselves, or it'll be re-offered next run.
 
 (An `ANTHROPIC_API_KEY` path still exists as a fallback for anyone who wants the script to
-research clubs itself via the Anthropic API instead of steps 1-2 above — just omit
-`--research-file`/`--event-json-file` and set the key.)
+research clubs itself via the Anthropic API instead of steps 2-3 above — just omit
+`--research-file`/`--event-json-file` and set the key. `--sheet-url` still works either way,
+and if omitted the script prompts for it directly.)
 
 ## After they're done
 

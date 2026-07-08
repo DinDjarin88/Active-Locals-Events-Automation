@@ -51,11 +51,30 @@ tse.MANUAL_OVERRIDE = None
 # ─────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────
-SHEET_ID = "1PaLF2yFwNEy9f85oHd2_BqIrcS3qaslNngTloFFnDLg"
-SHEET_GID = "0"
-CSV_EXPORT_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}"
+# Fallback used only if no sheet is provided via --sheet-url / prompt - keeps this
+# script runnable exactly as before for anyone who doesn't pass one.
+DEFAULT_SHEET_ID = "1PaLF2yFwNEy9f85oHd2_BqIrcS3qaslNngTloFFnDLg"
+DEFAULT_SHEET_GID = "0"
 
 MAX_CLUBS_THIS_RUN = None
+
+
+def build_csv_export_url(sheet_url_or_id):
+    """
+    Accepts a full Google Sheets URL (edit link, share link, with or without a gid),
+    or a bare sheet ID, and returns the CSV export URL for it.
+    """
+    sheet_url_or_id = (sheet_url_or_id or "").strip()
+    if not sheet_url_or_id:
+        return f"https://docs.google.com/spreadsheets/d/{DEFAULT_SHEET_ID}/export?format=csv&gid={DEFAULT_SHEET_GID}"
+
+    id_match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url_or_id)
+    sheet_id = id_match.group(1) if id_match else sheet_url_or_id
+
+    gid_match = re.search(r"[?#&]gid=(\d+)", sheet_url_or_id)
+    gid = gid_match.group(1) if gid_match else "0"
+
+    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
 
 
 # ─────────────────────────────────────────────
@@ -114,9 +133,10 @@ def extract_day_time_from_text(text):
     return found_day, time_24h
 
 
-def load_pending_rows():
-    print(f"📥 Loading sheet: {CSV_EXPORT_URL}")
-    resp = requests.get(CSV_EXPORT_URL, timeout=20)
+def load_pending_rows(sheet_url_or_id=None):
+    csv_export_url = build_csv_export_url(sheet_url_or_id)
+    print(f"📥 Loading sheet: {csv_export_url}")
+    resp = requests.get(csv_export_url, timeout=20)
     resp.raise_for_status()
 
     reader = csv.reader(io.StringIO(resp.text))
@@ -190,14 +210,17 @@ def load_pending_rows():
 # MAIN BATCH LOOP
 # ─────────────────────────────────────────────
 
-def run_batch(research_file=None):
+def run_batch(research_file=None, sheet_url=None):
     research_map = {}
     if research_file:
         with open(research_file) as f:
             research_map = json.load(f)
         print(f"📚 Loaded pre-researched data for {len(research_map)} club(s) from {research_file}")
 
-    pending = load_pending_rows()
+    if not sheet_url:
+        sheet_url = input("📋 Paste the Google Sheet link to process: ").strip()
+
+    pending = load_pending_rows(sheet_url)
     if not pending:
         print("Nothing to do - all rows already have a status, or the sheet is empty.")
         return
@@ -375,5 +398,10 @@ if __name__ == "__main__":
              "entirely, e.g. when a Claude Code agent has already researched every "
              "pending club itself.",
     )
+    parser.add_argument(
+        "--sheet-url",
+        help="Google Sheet link (or bare sheet ID) to read pending clubs from. "
+             "If omitted, you'll be prompted for it.",
+    )
     args = parser.parse_args()
-    run_batch(research_file=args.research_file)
+    run_batch(research_file=args.research_file, sheet_url=args.sheet_url)

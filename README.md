@@ -25,11 +25,13 @@ cp .env.example .env   # then fill in your own values
 Neither script researches clubs itself unless you let it — they can either call the Anthropic
 API directly, or take pre-researched data you supply, so no API key is required at all:
 
-Batch mode — processes every row in the sheet that doesn't already have a status set:
+Batch mode — processes every row in the sheet that doesn't already have a status set. If you
+don't pass `--sheet-url`, it prompts for the Google Sheet link (a full share/edit link or a
+bare sheet ID both work):
 
 ```bash
-env/bin/python batch_create_events.py                                    # needs ANTHROPIC_API_KEY
-env/bin/python batch_create_events.py --research-file research.json      # no API key needed
+env/bin/python batch_create_events.py                                                       # prompts for the sheet link, needs ANTHROPIC_API_KEY
+env/bin/python batch_create_events.py --sheet-url "<link>" --research-file research.json     # no prompt, no API key needed
 ```
 
 Single club:
@@ -48,8 +50,8 @@ to the next club.
 
 This repo includes a Claude Code skill (`.claude/skills/create-al-event`). Open this directory
 in Claude Code and run `/create-al-event` — it handles the environment setup (venv,
-dependencies, Playwright browser, asking for your `.env` credentials if missing) and researches
-each pending club itself using the same rules the original API prompt used. It then hands you
-the exact command to run yourself in your own terminal, so review/submit stays under your own
-native keyboard control (Enter/`s`/`b`) with nothing relayed through Claude. No
-`ANTHROPIC_API_KEY` required for this path.
+dependencies, Playwright browser, asking for your `.env` credentials if missing), asks you for
+the Google Sheet link to process, and researches each pending club itself using the same rules
+the original API prompt used. It then hands you the exact command to run yourself in your own
+terminal, so review/submit stays under your own native keyboard control (Enter/`s`/`b`) with
+nothing relayed through Claude. No `ANTHROPIC_API_KEY` required for this path.
